@@ -1,0 +1,74 @@
+name: Release Plugin
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go with cache
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.2'
+          cache: true
+
+      - name: Cache TinyGo
+        id: cache-tinygo
+        uses: actions/cache@v4
+        with:
+          # 步骤 1: 将缓存路径指向用户目录
+          path: ~/tinygo-cache
+          key: ${{ runner.os }}-tinygo-0.39.0
+
+      - name: Restore TinyGo from cache
+        if: steps.cache-tinygo.outputs.cache-hit == 'true'
+        run: |
+          # 步骤 2: 如果缓存命中，用 sudo 将文件复制到系统目录
+          echo "Restoring TinyGo from cache..."
+          sudo cp -r ~/tinygo-cache/tinygo /usr/local/bin/
+          sudo cp -r ~/tinygo-cache/lib/tinygo /usr/local/lib/
+
+      - name: Install and prepare TinyGo for caching
+        if: steps.cache-tinygo.outputs.cache-hit != 'true'
+        run: |
+          # 步骤 3: 如果缓存未命中，则安装，并复制到缓存目录以供保存
+          echo "Installing TinyGo and preparing for cache..."
+          wget https://github.com/tinygo-org/tinygo/releases/download/v0.39.0/tinygo_0.39.0_amd64.deb
+          sudo dpkg -i tinygo_0.39.0_amd64.deb
+          rm tinygo_0.39.0_amd64.deb
+          mkdir -p ~/tinygo-cache/lib
+          cp /usr/local/bin/tinygo ~/tinygo-cache/
+          cp -r /usr/local/lib/tinygo ~/tinygo-cache/lib/
+
+      - name: Build with -no-debug
+        run: |
+          export TINYGOROOT=/usr/local/lib/tinygo
+          tinygo build -target=wasip1 -no-debug -buildmode=c-shared -scheduler asyncify -o plugin.wasm .
+
+      - name: Package release version
+        run: zip plugin-release-${{ github.ref_name }}.zip plugin.wasm plugin.json
+
+      - name: Build without -no-debug (debug version)
+        run: |
+          export TINYGOROOT=/usr/local/lib/tinygo
+          tinygo build -target=wasip1 -buildmode=c-shared -scheduler asyncify -o plugin.wasm .
+
+      - name: Package debug version
+        run: zip plugin-debug-${{ github.ref_name }}.zip plugin.wasm plugin.json
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            plugin-release-${{ github.ref_name }}.zip
+            plugin-debug-${{ github.ref_name }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

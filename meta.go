@@ -30,7 +30,5 @@ func (a *Addition) IsAccount() bool {
 }
 
 func init() {
-	openlistwasiplugindriver.CreateDriver = func() openlistwasiplugindriver.Driver {
-		return &LanZou{}
-	}
+	openlistwasiplugindriver.RegisterDriver(&LanZou{})
 }
